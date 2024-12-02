@@ -18,7 +18,7 @@ detector = HandDetector(detectionCon=1)  # 设置手部检测的置信度
 game_started = False
 score = 0
 combo = 0
-max_combo = 10
+max_combo = 4
 circle_radius = 300  # 检测圆半径
 bullet_radius = 20  # 弹幕圆半径
 
@@ -44,14 +44,14 @@ def get_palm_center(landmarks):
     wrist = landmarks[0]
     middle_finger = landmarks[12]
     palm_center_x = (wrist[0] + middle_finger[0]) // 2
-    palm_center_y = (wrist[1] + middle_finger[1]) // 2
+    palm_center_y = (wrist[1] + middle_finger[1]) // 2+50
     return palm_center_x, palm_center_y
 
 # 检查手掌心是否在圆圈内
 def check_hand_in_circle(palm_center):
     x, y = palm_center
     distance = math.sqrt((x - width // 2) ** 2 + (y - height // 2) ** 2)
-    return distance <= circle_radius
+    return distance <= (circle_radius+30)
 
 # 检查弹幕是否到达圆圈边缘
 def check_bullet_in_circle(bullet):
@@ -68,7 +68,7 @@ def start_game(landmarks):
 
 # 游戏主循环
 bullets = []
-bullet_speed = 4  # 初始速度
+bullet_speed = 10  # 初始速度
 frame_count = 0
 
 while True:
@@ -126,7 +126,7 @@ while True:
 
         # 增加连击和速度
         if combo >= max_combo:
-            bullet_speed += 0.5  # 每达到最大连击，增加弹幕的速度
+            bullet_speed += 5  # 每达到最大连击，增加弹幕的速度
             max_combo += 3  # 增加连击上限
 
         # 显示得分和连击
@@ -146,11 +146,11 @@ while True:
 
     # 如果有左手，绘制左手掌心
     if left_hand_palm_center:
-        cv2.circle(img, left_hand_palm_center, 15, colors['红色'], -1)
+        cv2.circle(img, left_hand_palm_center, 30, colors['红色'], -1)
 
     # 如果有右手，绘制右手掌心
     if right_hand_palm_center:
-        cv2.circle(img, right_hand_palm_center, 15, colors['红色'], -1)
+        cv2.circle(img, right_hand_palm_center, 30, colors['红色'], -1)
 
     # 显示图像
     cv2.imshow("Hand Gesture Game", img)

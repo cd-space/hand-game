@@ -1,7 +1,7 @@
 import random
 import cv2
+import math
 from cvzone.HandTrackingModule import HandDetector
-from Shape import Circle, Block
 
 # OpenCV BGR颜色对照表
 colors = {'黑色': (0, 0, 0), '红色': (0, 0, 255), '绿色': (0, 255, 0), '蓝色': (255, 0, 0), '紫色': (128, 0, 128),
@@ -13,110 +13,140 @@ cap.set(3, width)  # 设置宽度
 cap.set(4, height)  # 设置高度
 detector = HandDetector(detectionCon=1)  # 设置手部检测的置信度
 
-Shapes = []  # 存储图形
-generate_time = 40  # 生成新图形的频率(每隔generate_time帧生成一个新图形)
-now = 0  # 记录当前时刻
-score = 0  # 得分
-combo = 0  # 连续击中次数
-cordon = height - 50  # 警戒线高度
+# 游戏状态
 game_started = False  # 游戏是否已开始
+score = 0  # 得分
+combo = 0  # 连击次数
+max_combo = 10  # 连击上限
+speed_increase_threshold = 3  # 每达到此连击数，增加速度
+circle_radius = 200  # 增大的圆圈半径（适合手掌）
 
+# 弹幕类，表示从圆心发射的弹幕
+class Bullet:
+    def __init__(self, angle, speed):
+        self.angle = angle  # 弹幕的发射角度
+        self.speed = speed  # 弹幕的速度
+        self.x = width // 2  # 起始位置：圆心x坐标
+        self.y = height // 2  # 起始位置：圆心y坐标
+        self.radius = 10  # 弹幕半径
 
-# 检查是否点击了开始按钮
-def check_start_game(landmarks):
-    x, y = landmarks[8][0], landmarks[8][1]  # 使用食指尖的坐标
-    start_button_x1, start_button_y1 = width // 3, height // 3
-    start_button_x2, start_button_y2 = 2 * width // 3, height // 2
+    def move(self):
+        # 弹幕的 x, y 坐标根据速度和角度更新
+        self.x += self.speed * math.cos(self.angle)
+        self.y += self.speed * math.sin(self.angle)
 
-    # 判断是否点击了开始按钮
-    if start_button_x1 < x < start_button_x2 and start_button_y1 < y < start_button_y2:
+    def draw(self, img):
+        # 绘制弹幕
+        cv2.circle(img, (int(self.x), int(self.y)), self.radius, colors['红色'], -1)
+
+# 获取手掌中心位置
+def get_palm_center(landmarks):
+    # 获取手掌的关键点：手腕到中指顶端的中点作为掌心位置
+    wrist = landmarks[0]
+    middle_finger = landmarks[12]
+    palm_center_x = (wrist[0] + middle_finger[0]) // 2
+    palm_center_y = (wrist[1] + middle_finger[1]) // 2
+    return palm_center_x, palm_center_y
+
+# 检查掌心是否在圆圈内
+def check_hand_in_circle(palm_center):
+    x, y = palm_center
+    if (x - width // 2) ** 2 + (y - height // 2) ** 2 < circle_radius ** 2:
         return True
     return False
 
+# 开始游戏
+def start_game(landmarks):
+    global game_started
+    x, y = landmarks[8][0], landmarks[8][1]  # 食指尖
+    start_button_x1, start_button_y1 = width // 3, height // 3
+    start_button_x2, start_button_y2 = 2 * width // 3, height // 2
+
+    if start_button_x1 < x < start_button_x2 and start_button_y1 < y < start_button_y2:
+        game_started = True
+
+# 初始化弹幕
+bullets = []
+bullet_speed = 4  # 初始速度
+generate_bullet_time = 60  # 每60帧生成一个新的弹幕
+frame_count = 0
 
 while True:
     success, img = cap.read()
     
-    if not success:  # 防御性检查：如果无法读取图像，跳出循环
+    if not success:
         print("无法读取摄像头图像，退出程序")
         break
     
+    img = cv2.flip(img, 1)  # 水平翻转图像，使其符合人体感官
+
     img = detector.findHands(img)
-    landmarks, bbox = detector.findPosition(img)
-    
-    if game_started:  # 如果游戏已经开始
-        now += 1
-        
-        if Shapes:  # 如果有图形显示
-            if landmarks:
-                try:
-                    distance, _, _ = detector.findDistance(8, 7, img)  # 获取关节8和7之间的距离
-                    if distance < 40:  # 如果关节之间的距离小于40认为是点击操作
-                        for b in Shapes:
-                            if b.include(landmarks[8][0], landmarks[8][1]):  # 如果点击到图形
-                                Shapes.remove(b)
-                                combo += 1
-                                # 根据连击次数调整得分
-                                if combo < 3:
-                                    score += 1
-                                elif 3 <= combo < 5:
-                                    score += 2
-                                elif 5 <= combo < 10:
-                                    score += 3
-                                elif 10 <= combo:
-                                    score += 5
-                except Exception as e:
-                    print(f"点击检测错误: {e}")
-                    
-            for b in Shapes:  # 显示所有剩余的图形
-                try:
-                    if b.escape(cordon):  # 如果图形触碰到警戒线，扣分并移除
-                        score -= 2
-                        combo = 0
-                        Shapes.remove(b)
-                    else:
-                        b.show(img)
-                        b.fall()
-                except Exception as e:
-                    print(f"图形显示或下落错误: {e}")
-        
-        if now % generate_time == 0:  # 每隔generate_time帧生成一个新的图形
-            try:
-                shape = random.randint(0, 1)  # 随机选择形状
-                r = random.randint(30, 60)  # 图形半径范围
-                w = random.randint(150, width - 2 * r - 150)  # 图形的左侧x坐标
-                v = random.randint(1, 10)  # 图形下落速度
-                color = random.sample(list(colors.keys()), 1)[0]  # 随机选择颜色的键
-                if shape == 0:
-                    Shapes.append(Block(w, v, r, colors[color]))
-                elif shape == 1:
-                    Shapes.append(Circle(w, v, r, colors[color]))
-            except Exception as e:
-                print(f"图形生成错误: {e}")
-        
-        img = cv2.flip(img, 1)  # 将画面进行水平翻转，符合人体感官
-        cv2.rectangle(img, (width - 400, 0), (width, 150), colors['深红色'], cv2.FILLED)  # 得分框
-        cv2.putText(img, f'Score:{score}', (width - 380, 50), cv2.FONT_HERSHEY_COMPLEX, 2, colors['白色'], 3)  # 显示得分
-        cv2.putText(img, f'Combo:{combo}', (width - 380, 130), cv2.FONT_HERSHEY_COMPLEX, 2, colors['白色'], 3)  # 显示连击次数
-        cv2.rectangle(img, (0, cordon), (width, cordon + 12), colors['深红色'], cv2.FILLED)  # 警戒线框
-        cv2.line(img, (0, cordon + 6), (width, cordon + 6), colors['白色'], 4)  # 警戒线
-        cv2.imshow('Just Click', img)
-    
-    else:  # 如果游戏未开始，显示开始界面
-        img = cv2.flip(img, 1)  # 水平翻转
+    landmarks, _ = detector.findPosition(img)
+
+    if game_started:  # 游戏开始后
+        frame_count += 1
+
+        # 随机生成弹幕
+        if frame_count % generate_bullet_time == 0:
+            angle = random.uniform(0, 2 * math.pi)  # 随机角度
+            bullet = Bullet(angle, bullet_speed)
+            bullets.append(bullet)
+
+        # 绘制和移动所有弹幕
+        for bullet in bullets:
+            bullet.move()
+            bullet.draw(img)
+
+        # 获取掌心位置并检查是否击中检测点
+        if landmarks:
+            palm_center = get_palm_center(landmarks)
+            if check_hand_in_circle(palm_center):
+                for bullet in bullets:
+                    if (bullet.x - width // 2) ** 2 + (bullet.y - height // 2) ** 2 < circle_radius ** 2:
+                        score += combo + 1  # 根据combo加分
+                        combo += 1
+                        bullets.remove(bullet)  # 击中后移除弹幕
+
+        # 增加连击和速度
+        if combo >= speed_increase_threshold:
+            bullet_speed += 0.5  # 每达到阈值，增加弹幕的速度
+            speed_increase_threshold += 3  # 每次阈值加3
+
+        # 显示得分和连击
+        cv2.putText(img, f'Score: {score}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, colors['白色'], 3)
+        cv2.putText(img, f'Combo: {combo}', (50, 120), cv2.FONT_HERSHEY_SIMPLEX, 2, colors['白色'], 3)
+
+    else:  # 游戏未开始
         # 绘制开始按钮区域
         cv2.rectangle(img, (width // 3, height // 3), (2 * width // 3, height // 2), colors['绿色'], cv2.FILLED)
         cv2.putText(img, "Click to Start Game", (width // 3 + 55, height // 2 - 45), cv2.FONT_HERSHEY_SIMPLEX, 1, colors['黑色'], 3)
-        cv2.imshow('Just Click', img)
-        
+
+        # 检查是否点击了开始按钮
         if landmarks:
-            if check_start_game(landmarks):  # 检查是否点击了开始按钮
-                game_started = True  # 游戏开始
-        
-    # 防御性检查：检测是否按下ESC键退出
-    if cv2.waitKey(1) & 0XFF == 27:  # 按 "ESC" 键退出
+            start_game(landmarks)
+
+    # 绘制检测点圆圈
+    cv2.circle(img, (width // 2, height // 2), circle_radius, colors['白色'], 2)
+
+    # 处理手部标识
+    if len(landmarks) > 0:
+        if len(landmarks) >= 21:
+            # 判断左右手
+            palm_center = get_palm_center(landmarks)
+            if palm_center[0] < width // 2:
+                # 左手
+                cv2.rectangle(img, (landmarks[0][0] - 20, landmarks[0][1] - 20), (landmarks[9][0] + 20, landmarks[9][1] + 20), colors['绿色'], 3)
+            else:
+                # 右手
+                cv2.rectangle(img, (landmarks[0][0] - 20, landmarks[0][1] - 20), (landmarks[9][0] + 20, landmarks[9][1] + 20), colors['蓝色'], 3)
+        else:
+            # 如果只检测到一只手，直接画框
+            cv2.rectangle(img, (landmarks[0][0] - 20, landmarks[0][1] - 20), (landmarks[9][0] + 20, landmarks[9][1] + 20), colors['黄色'], 3)
+
+    cv2.imshow("Bullet Game", img)
+
+    if cv2.waitKey(1) & 0xFF == 27:  # 按ESC退出
         break
 
-
-cap.release()  # 释放摄像头
-cv2.destroyAllWindows()  # 关闭所有OpenCV窗口
+cap.release()
+cv2.destroyAllWindows()

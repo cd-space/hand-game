@@ -39,7 +39,7 @@ class Bullet:
         # 绘制弹幕
         cv2.circle(img, (int(self.x), int(self.y)), self.radius, colors['红色'], -1)
 
-# 获取手掌中心位置
+# 获取手掌心位置
 def get_palm_center(landmarks):
     # 获取手掌的关键点：手腕到中指顶端的中点作为掌心位置
     wrist = landmarks[0]
@@ -48,10 +48,19 @@ def get_palm_center(landmarks):
     palm_center_y = (wrist[1] + middle_finger[1]) // 2
     return palm_center_x, palm_center_y
 
-# 检查掌心是否在圆圈内
-def check_hand_in_circle(palm_center):
+# 检查手掌心是否在圆圈边缘上
+def check_hand_on_edge(palm_center):
     x, y = palm_center
-    if (x - width // 2) ** 2 + (y - height // 2) ** 2 < circle_radius ** 2:
+    # 计算手掌心到圆心的距离
+    distance = math.sqrt((x - width // 2) ** 2 + (y - height // 2) ** 2)
+    # 判断是否在圆圈边缘，允许一定的误差（比如5像素内）
+    if abs(distance - circle_radius) <= 5:
+        return True
+    return False
+
+# 检查弹幕是否到达圆圈边缘
+def check_bullet_in_circle(bullet):
+    if (bullet.x - width // 2) ** 2 + (bullet.y - height // 2) ** 2 >= (circle_radius - bullet.radius) ** 2:
         return True
     return False
 
@@ -97,15 +106,30 @@ while True:
             bullet.move()
             bullet.draw(img)
 
-        # 获取掌心位置并检查是否击中检测点
+        # 获取手掌心的位置
+        left_hand_palm_center = None
+        right_hand_palm_center = None
+
         if landmarks:
-            palm_center = get_palm_center(landmarks)
-            if check_hand_in_circle(palm_center):
-                for bullet in bullets:
-                    if (bullet.x - width // 2) ** 2 + (bullet.y - height // 2) ** 2 < circle_radius ** 2:
-                        score += combo + 1  # 根据combo加分
-                        combo += 1
-                        bullets.remove(bullet)  # 击中后移除弹幕
+            if landmarks[0][0] < width // 2:
+                # 左手
+                left_hand_palm_center = get_palm_center(landmarks)
+            else:
+                # 右手
+                right_hand_palm_center = get_palm_center(landmarks)
+
+        # 检查是否击中弹幕
+        for bullet in bullets[:]:
+            if check_bullet_in_circle(bullet):
+                # 检查左右手掌心是否与弹幕所在圆圈重合
+                if left_hand_palm_center and check_hand_on_edge(left_hand_palm_center):
+                    score += combo + 1
+                    combo += 1
+                    bullets.remove(bullet)
+                elif right_hand_palm_center and check_hand_on_edge(right_hand_palm_center):
+                    score += combo + 1
+                    combo += 1
+                    bullets.remove(bullet)
 
         # 增加连击和速度
         if combo >= speed_increase_threshold:
@@ -138,14 +162,11 @@ while True:
                 cv2.rectangle(img, (landmarks[0][0] - 20, landmarks[0][1] - 20), (landmarks[9][0] + 20, landmarks[9][1] + 20), colors['绿色'], 3)
             else:
                 # 右手
-                cv2.rectangle(img, (landmarks[0][0] - 20, landmarks[0][1] - 20), (landmarks[9][0] + 20, landmarks[9][1] + 20), colors['蓝色'], 3)
-        else:
-            # 如果只检测到一只手，直接画框
-            cv2.rectangle(img, (landmarks[0][0] - 20, landmarks[0][1] - 20), (landmarks[9][0] + 20, landmarks[9][1] + 20), colors['黄色'], 3)
+                cv2.rectangle(img, (landmarks[0][0] - 20, landmarks[0][1] - 20), (landmarks[9][0] + 20, landmarks[9][1] + 20), colors['红色'], 3)
 
-    cv2.imshow("Bullet Game", img)
-
-    if cv2.waitKey(1) & 0xFF == 27:  # 按ESC退出
+    # 显示图像
+    cv2.imshow("Hand Gesture Game", img)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
 cap.release()

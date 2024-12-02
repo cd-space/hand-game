@@ -19,8 +19,8 @@ game_started = False
 score = 0
 combo = 0
 max_combo = 10
-circle_radius = 200  # 检测圆半径
-bullet_radius = 10  # 弹幕圆半径
+circle_radius = 300  # 检测圆半径
+bullet_radius = 20  # 弹幕圆半径
 
 # 弹幕类，表示从圆心发射的弹幕
 class Bullet:
@@ -81,6 +81,7 @@ while True:
     img = detector.findHands(img)
     landmarks, _ = detector.findPosition(img)
 
+    # 初始化左右手掌心位置
     left_hand_palm_center = None
     right_hand_palm_center = None
 
@@ -99,19 +100,22 @@ while True:
 
         # 检测左右手
         if landmarks:
+            # 检测左手
             if landmarks[0][0] < width // 2:
                 left_hand_palm_center = get_palm_center(landmarks)
-            else:
+            # 检测右手
+            elif landmarks[0][0] > width // 2:
                 right_hand_palm_center = get_palm_center(landmarks)
 
         # 检查弹幕
         for bullet in bullets[:]:
             if check_bullet_in_circle(bullet):
-                # 检查是否在手掌心内并击中
+                # 检查是否在左手掌心内并击中
                 if left_hand_palm_center and check_hand_in_circle(left_hand_palm_center):
                     score += combo + 1
                     combo += 1
                     bullets.remove(bullet)
+                # 检查是否在右手掌心内并击中
                 elif right_hand_palm_center and check_hand_in_circle(right_hand_palm_center):
                     score += combo + 1
                     combo += 1
@@ -126,8 +130,8 @@ while True:
             max_combo += 3  # 增加连击上限
 
         # 显示得分和连击
-        cv2.putText(img, f'Score: {score}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, colors['白色'], 3)
-        cv2.putText(img, f'Combo: {combo}', (50, 120), cv2.FONT_HERSHEY_SIMPLEX, 2, colors['白色'], 3)
+        cv2.putText(img, f'Score: {score}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, colors['黑色'], 3)
+        cv2.putText(img, f'Combo: {combo}', (50, 120), cv2.FONT_HERSHEY_SIMPLEX, 2, colors['黑色'], 3)
 
     else:
         # 游戏未开始，绘制开始按钮
@@ -137,10 +141,14 @@ while True:
         if landmarks:
             start_game(landmarks)
 
-    # 绘制检测圆和掌心标记
+    # 绘制检测圆和两只手的掌心标记
     cv2.circle(img, (width // 2, height // 2), circle_radius, colors['白色'], 2)
+
+    # 如果有左手，绘制左手掌心
     if left_hand_palm_center:
-        cv2.circle(img, left_hand_palm_center, 15, colors['绿色'], -1)
+        cv2.circle(img, left_hand_palm_center, 15, colors['红色'], -1)
+
+    # 如果有右手，绘制右手掌心
     if right_hand_palm_center:
         cv2.circle(img, right_hand_palm_center, 15, colors['红色'], -1)
 
